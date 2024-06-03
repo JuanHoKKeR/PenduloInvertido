@@ -7,7 +7,7 @@
 #define Encoder_A 32
 #define Encoder_B 33
 
-#define Ts 0.05
+#define Ts 0.02
 
 #define IN1 26
 #define IN2 27
@@ -40,16 +40,16 @@ struct PendulumData {
 // Variables
 const int outMax = 255;
 
-float Kp = 0.4;
-float Ki = 0.45;
-float Kd = 0.02;
+float Kp = 0.3;
+float Ki = 0.42;
+float Kd = 0.025;
 
 volatile float error[3] = {0, 0, 0};
 volatile float PID[3] = {0, 0, 0};
 float integralMax = 10.0; // Límite máximo para el término integral
 float integralMin = -10.0; // Límite mínimo para el término integral
 float Ajuste_angulo = 1.5;
-
+float Ajuste_angulo_2 = 0.001;
 float setpoint = 0.0;
 volatile float output = 0;
 volatile float output_norm = 0;
@@ -118,6 +118,8 @@ void Controlador() {
   else{
     setpoint = setpoint - (Ajuste_angulo*Ts);
   }
+    setpoint = setpoint - (Ajuste_angulo_2*Ts*motor.velocity);
+
   error[0] = setpoint - pendulum.encoderAngle;
   PID[2] = error[0];                              //Proporcional
   PID[1] = (PID[1] + (error[0] * Ts));            //Integral
@@ -182,6 +184,10 @@ void processSerialInput() {
       Ajuste_angulo = input.substring(3).toFloat();
       Serial.print("AngleFixed set to: ");
       Serial.println(Ajuste_angulo,5);
+    }else if (input.startsWith("FW=")) {
+      Ajuste_angulo_2 = input.substring(3).toFloat();
+      Serial.print("AngleFixed set to: ");
+      Serial.println(Ajuste_angulo,5);
     } else {
       Serial.println("Invalid command. Use Kp=, Ki=, Kd= to set values.");
     }
@@ -223,6 +229,6 @@ void loop() {
   // Serial.print("  Controlador Normalizado: "); Serial.print(output_norm);
   // Serial.print("  Entrada Motor: "); Serial.print(output_norm * 255);
   //Serial.print("  Velocidad Motor: "); Serial.println(motor.velocity);
-  Serial.print(setpoint);Serial.print(",");Serial.print(pendulum.encoderAngle);Serial.print(",");Serial.print(-20);Serial.print(",");Serial.print(20);Serial.print(",");Serial.println(output);
+  Serial.print(setpoint);Serial.print(",");Serial.print(pendulum.encoderAngle);Serial.print(",");Serial.print(-15);Serial.print(",");Serial.print(15);Serial.print(",");Serial.println(output);
   //delay(5); // Ajusta el delay según sea necesario para evitar sobrecarga del puerto serie
 }
