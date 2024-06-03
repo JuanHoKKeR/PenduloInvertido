@@ -14,11 +14,11 @@
 
 volatile long encoderPos_Motor = 0;
 volatile int lastEncoded_Motor = 0;
-volatile int encoderValue = 0; 
+volatile int encoderValue = 0;
 volatile int lastEncoded = 0;
 
 const int MotorPasos = 900;
-const int EncoderPasos = 2400; 
+const int EncoderPasos = 2400;
 
 unsigned long lastCalcTime = 0;
 long lastEncoderPos_Motor = 0;
@@ -40,24 +40,21 @@ struct PendulumData {
 // Variables
 const int outMax = 255;
 
-float Kp = 10; 
-float Ki = 0; 
-float Kd = 0; 
-
+float Kp = 0.4;
+float Ki = 0.45;
+float Kd = 0.02;
 
 volatile float error[3] = {0, 0, 0};
-volatile float PID[3]={0, 0, 0};
+volatile float PID[3] = {0, 0, 0};
+float integralMax = 10.0; // Límite máximo para el término integral
+float integralMin = -10.0; // Límite mínimo para el término integral
+float Ajuste_angulo = 2.0;
 
-float setpoint = 20.0;
+float setpoint = 0.0;
 volatile float output = 0;
+volatile float output_norm = 0;
 
 Ticker timer;
-
-// PWM Channel configuration
-const int pwmFreq = 1000;
-const int pwmResolution = 8;
-const int pwmChannel1 = 0;
-const int pwmChannel2 = 1;
 
 void IRAM_ATTR handleEncoder() {
   int MSB = digitalRead(Encoder_A); // LSB primero
@@ -94,59 +91,100 @@ void IRAM_ATTR handleEncoder_Motor() {
 void calculate() {
   // Calcular la velocidad del motor
   long pulses = encoderPos_Motor - lastEncoderPos_Motor;
-  motor.velocity = (pulses * 60.0) / (MotorPasos*Ts); // Reemplaza 
+  motor.velocity = (pulses * 60.0) / (MotorPasos * Ts);
   motor.position = encoderPos_Motor;
   lastEncoderPos_Motor = encoderPos_Motor;
 
   // Calcular la velocidad y el ángulo del encoder del péndulo
   pendulum.encoderPosition = encoderValue;
   long pulses_encoder = encoderValue - lastEncoderValue;
-  pendulum.encoderVelocity = (pulses_encoder * 60.0) / (EncoderPasos*Ts);
+  pendulum.encoderVelocity = (pulses_encoder * 60.0) / (EncoderPasos * Ts);
   pendulum.encoderAngle = (encoderValue / (float)EncoderPasos) * 360.0; // Convertir a grados
   lastEncoderValue = encoderValue;
-  //if (pendulum.encoderAngle > 45 || pendulum.encoderAngle < 5) {motorStop();}
-  //else{Controlador();}
+  if (abs(pendulum.encoderAngle) >= 20) {
+    motorStop();
+    setpoint=0;
+  }
+  else{Controlador();}
+  //Controlador();
 }
 
 void Controlador() {
-  error[0] = setpoint - pendulum.encoderAngle;
-  PID[2] = error[0]; 
-  PID[1] = (PID[1]+(error[0]*Ts));
-  PID[0] = (error[0]-error[1])/Ts;
-  output = Kp*PID[2]+Ki*PID[1]+Kd*PID[0]; //Kp*P + Ki*I + Kd*D
-  error[1]=error[0];
-
-  if (abs(output) > outMax) {
-    output = output > 0 ? outMax : -outMax;
+  
+  if(pendulum.encoderAngle < setpoint){
+    setpoint = setpoint + (Ajuste_angulo*Ts);
   }
-  pwmOut(int(output));
+  else{
+    setpoint = setpoint - (Ajuste_angulo*Ts);
+  }
+  error[0] = setpoint - pendulum.encoderAngle;
+  PID[2] = error[0];                              //Proporcional
+  PID[1] = (PID[1] + (error[0] * Ts));            //Integral
+  if (PID[1] > integralMax) {
+    PID[1] = integralMax;
+  } else if (PID[1] < integralMin) {
+    PID[1] = integralMin;
+  }
+  PID[0] = (error[0] - error[1]) / Ts;            //Derivativo
+  output = Kp * PID[2] + Ki * PID[1] + Kd * PID[0];
+  error[1] = error[0];
+  output_norm = output;
+  if (abs(output) > 1) {
+    output_norm = output > 0 ? 1.0 : -1.0;
+  }
+  //if (abs(pendulum.encoderAngle) >= 20) {
+    //motorStop();
+  //}
+  //else {
+    pwmOut(int(output * 255));
+  //
 }
 
 void pwmOut(int out) {
-  
   if (abs(out) > outMax) {
     out = out > 0 ? outMax : -outMax;
   }
   if (out > 0) {
-    ledcWrite(pwmChannel1, abs(out));
-    ledcWrite(pwmChannel2, 0);
+    analogWrite(IN1, abs(out));
+    analogWrite(IN2, 0);
+  } else if (out < 0) {
+    analogWrite(IN1, 0);
+    analogWrite(IN2, abs(out));
+  } else {
+    analogWrite(IN1, 0);
+    analogWrite(IN2, 0);
   }
-  else if (out < 0) {
-    ledcWrite(pwmChannel1, 0);
-    ledcWrite(pwmChannel2, abs(out));
-  }
-  else {
-    ledcWrite(pwmChannel1, 0);
-    ledcWrite(pwmChannel2, 0);
-  }
-  //Serial.println(out);
 }
 
 void motorStop() {
-  
-  ledcWrite(pwmChannel1, 255);
-  ledcWrite(pwmChannel2, 255);
+  analogWrite(IN1, 255);
+  analogWrite(IN2, 255);
+}
 
+void processSerialInput() {
+  if (Serial.available() > 0) {
+    String input = Serial.readStringUntil('\n');
+    input.trim();
+    if (input.startsWith("Kp=")) {
+      Kp = input.substring(3).toFloat();
+      Serial.print("Kp set to: ");
+      Serial.println(Kp,5);
+    } else if (input.startsWith("Ki=")) {
+      Ki = input.substring(3).toFloat();
+      Serial.print("Ki set to: ");
+      Serial.println(Ki,5);
+    } else if (input.startsWith("Kd=")) {
+      Kd = input.substring(3).toFloat();
+      Serial.print("Kd set to: ");
+      Serial.println(Kd,5);
+    } else if (input.startsWith("FA=")) {
+      Ajuste_angulo = input.substring(3).toFloat();
+      Serial.print("AngleFixed set to: ");
+      Serial.println(Ajuste_angulo,5);
+    } else {
+      Serial.println("Invalid command. Use Kp=, Ki=, Kd= to set values.");
+    }
+  }
 }
 
 void setup() {
@@ -167,28 +205,23 @@ void setup() {
   attachInterrupt(digitalPinToInterrupt(Encoder_MotorA), handleEncoder_Motor, CHANGE);
   attachInterrupt(digitalPinToInterrupt(Encoder_MotorB), handleEncoder_Motor, CHANGE);
 
-  // Configuración de los canales PWM
-  ledcSetup(pwmChannel1, pwmFreq, pwmResolution);
-  ledcSetup(pwmChannel2, pwmFreq, pwmResolution);
-
-  // Adjuntar los canales PWM a los pines
-  ledcAttachPin(IN1, pwmChannel1);
-  ledcAttachPin(IN2, pwmChannel2);
-
   // Iniciar el temporizador para calcular cada 50 ms
   timer.attach(Ts, calculate);
+
+  Serial.println("Enter Kp, Ki, Kd values in the format: Kp=0.4, Ki=0.01, Kd=0");
 }
 
 void loop() {
+  processSerialInput();
+
   // Imprimir los valores en el monitor serie
-  Serial.print("SetPoint: ");Serial.print(setpoint);
-  Serial.print("  Angulo: "); Serial.print(pendulum.encoderAngle);
-  Serial.print("  Error: "); Serial.print(error[0]);
-  Serial.print("  Controlador: "); Serial.println(output);
-  //pwmOut(-200);
-  for(int i=0;i<=255;i++){
-    pwmOut(i);
-    Serial.print((i*100)/255); Serial.println("%");
-    delay(80);
-  }
+  // Serial.print("SetPoint: "); Serial.print(setpoint);
+  // Serial.print("  Angulo: "); Serial.print(pendulum.encoderAngle);
+  // Serial.print("  Error: "); Serial.print(error[0]);
+  // Serial.print("  Controlador: "); Serial.print(output);
+  // Serial.print("  Controlador Normalizado: "); Serial.print(output_norm);
+  // Serial.print("  Entrada Motor: "); Serial.print(output_norm * 255);
+  // Serial.print("  Velocidad Motor: "); Serial.println(motor.velocity);
+  Serial.print(setpoint);Serial.print(",");Serial.print(pendulum.encoderAngle);Serial.print(",");Serial.print(-20);Serial.print(",");Serial.print(20);Serial.print(",");Serial.println(output);
+  //delay(5); // Ajusta el delay según sea necesario para evitar sobrecarga del puerto serie
 }
