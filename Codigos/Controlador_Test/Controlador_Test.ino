@@ -8,9 +8,9 @@
 #define Encoder_B 33
 
 
-#define AngleMax 19
+#define AngleMax 19.75
 #define AngleOffset -25.50//24.15
-#define AngleEnd 20
+#define AngleEnd 20.25
 #define Ts 0.01
 
 #define IN1 26
@@ -44,7 +44,7 @@ struct PendulumData {
 // Variables
 const int outMax = 255;
 
-float Kp = 0.3;
+float Kp = 0.375;//0.3;
 float Ki = 0.42;
 float Kd = 0.025;
 
@@ -157,15 +157,29 @@ void Controlador() {
 }
 
 void pwmOut(int out) {
+  float ang=pendulum.encoderAngle;
+  float lastang;
   if (abs(out) > outMax) {
     out = out > 0 ? outMax : -outMax;
   }
   if (out > 0) {
     analogWrite(IN1, abs(out));
     analogWrite(IN2, 0);
+    lastang=ang;
+    if(ang<lastang){
+    analogWrite(IN1,0);
+    analogWrite(IN2,  abs(out));
+    }
+
   } else if (out < 0) {
     analogWrite(IN1, 0);
     analogWrite(IN2, abs(out));
+    lastang=ang;
+    if(ang>lastang){
+    analogWrite(IN1,0);
+    analogWrite(IN2,  abs(out));
+    }
+
   } else {
     analogWrite(IN1, 0);
     analogWrite(IN2, 0);
@@ -190,6 +204,7 @@ void riseUP(){
   if (abs(pendulum.encoderAngle) < AngleMax) {
     enable_riseup = false; // Deshabilitar riseup
     initialized = false;
+    motorStop();
     return; // Si el ángulo está dentro del rango, salir de la función
   }
 
@@ -202,20 +217,22 @@ void riseUP(){
     if (currentTime < 2) {
       pwmOut(-255);
     } else {
-      pwmOut(255);
-      if (abs(pendulum.encoderAngle) < AngleEnd) {
+      pwmOut(223);
+      if (abs(pendulum.encoderAngle) < 20.7) {
         //Serial.println("Entro al Stop");
+        motorStop();
         initialized = false; // Reiniciar la inicialización para la próxima vez
       }
     }
   } else if (pendulum.encoderAngle > 0) {
     //Serial.println("Angulo Positivo");
-    if (currentTime < 2) {
+    if (currentTime < 3) {
       pwmOut(255);
     } else {
       pwmOut(-255);
       if (abs(pendulum.encoderAngle) < AngleEnd) {
         //Serial.println("Entro al Stop");
+        motorStop();
         initialized = false; // Reiniciar la inicialización para la próxima vez
       }
     }
@@ -287,6 +304,6 @@ void loop() {
   // Serial.print("  Controlador Normalizado: "); Serial.print(output_norm);
   // Serial.print("  Entrada Motor: "); Serial.print(output_norm * 255);
   //Serial.print("  Velocidad Motor: "); Serial.println(motor.velocity);
-  Serial.print(setpoint);Serial.print(",");Serial.print(pendulum.encoderAngle);Serial.print(",");Serial.print(-1);Serial.print(",");Serial.print(1);Serial.print(",");Serial.println(output);
+  Serial.print(setpoint);Serial.print(",");Serial.print(pendulum.encoderAngle);Serial.print(",");Serial.print(-20);Serial.print(",");Serial.print(20);Serial.print(",");Serial.println(output);
   //delay(1); // Ajusta el delay según sea necesario para evitar sobrecarga del puerto serie
 }
