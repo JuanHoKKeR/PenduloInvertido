@@ -7,11 +7,7 @@
 #define Encoder_A 32
 #define Encoder_B 33
 
-
-#define AngleMax 19
-#define AngleOffset -25.50//24.15
-#define AngleEnd 20
-#define Ts 0.01
+#define Ts 0.05
 
 #define IN1 26
 #define IN2 27
@@ -44,22 +40,19 @@ struct PendulumData {
 // Variables
 const int outMax = 255;
 
-float Kp = 0.3;
-float Ki = 0.42;
-float Kd = 0.025;
+float Kp = 0.4;
+float Ki = 0.45;
+float Kd = 0.02;
 
 volatile float error[3] = {0, 0, 0};
 volatile float PID[3] = {0, 0, 0};
 float integralMax = 10.0; // Límite máximo para el término integral
 float integralMin = -10.0; // Límite mínimo para el término integral
 float Ajuste_angulo = 1.5;
-float Ajuste_angulo_2 = 0.001;
+
 float setpoint = 0.0;
 volatile float output = 0;
 volatile float output_norm = 0;
-
-bool enable_riseup = false;
-
 
 Ticker timer;
 
@@ -106,17 +99,14 @@ void calculate() {
   pendulum.encoderPosition = encoderValue;
   long pulses_encoder = encoderValue - lastEncoderValue;
   pendulum.encoderVelocity = (pulses_encoder * 60.0) / (EncoderPasos * Ts);
-  pendulum.encoderAngle = ((encoderValue / (float)EncoderPasos) * 360.0) + AngleOffset; // Convertir a grados
+  pendulum.encoderAngle = (encoderValue / (float)EncoderPasos) * 360.0; // Convertir a grados
 
   lastEncoderValue = encoderValue;
-  if (abs(pendulum.encoderAngle) >= AngleMax) {
-    enable_riseup = true;
+  if (abs(pendulum.encoderAngle) >= 20) {
+    motorStop();
     setpoint=0;
   }
-  else{
-    enable_riseup = false;
-    Controlador();
-  }
+  else{Controlador();}
   //Controlador();
 }
 
@@ -125,14 +115,9 @@ void Controlador() {
   if(pendulum.encoderAngle < setpoint){
     setpoint = setpoint + (Ajuste_angulo*Ts);
   }
-  else if(pendulum.encoderAngle == setpoint){
-    setpoint = setpoint;
-  }
   else{
     setpoint = setpoint - (Ajuste_angulo*Ts);
   }
-    setpoint = setpoint - (Ajuste_angulo_2*Ts*motor.velocity);
-
   error[0] = setpoint - pendulum.encoderAngle;
   PID[2] = error[0];                              //Proporcional
   PID[1] = (PID[1] + (error[0] * Ts));            //Integral
@@ -152,7 +137,7 @@ void Controlador() {
     //motorStop();
   //}
   //else {
-    pwmOut(int(output*255));  //*255
+    pwmOut(int(output * 255));
   //
 }
 
@@ -177,51 +162,6 @@ void motorStop() {
   analogWrite(IN2, 255);
 }
 
-void riseUP(){
-  // Tomar el tiempo y el ángulo actual al iniciar la función
-  static bool initialized = false;
-  static unsigned long startime;
-  if (!initialized) {
-    startime = millis();
-    initialized = true;
-  }
-
-  // Determinar si el ángulo es menor al rango deseado
-  if (abs(pendulum.encoderAngle) < AngleMax) {
-    enable_riseup = false; // Deshabilitar riseup
-    initialized = false;
-    return; // Si el ángulo está dentro del rango, salir de la función
-  }
-
-  // Calcular el tiempo transcurrido
-  float currentTime = (millis() - startime) / 1000.0;
-  //Serial.print("Tiempo: ");Serial.println(currentTime);
-  // Ejecutar la secuencia de levantamiento según el ángulo inicial
-  if (pendulum.encoderAngle < 0) {
-    //Serial.println("Angulo Negativo");
-    if (currentTime < 2) {
-      pwmOut(-255);
-    } else {
-      pwmOut(255);
-      if (abs(pendulum.encoderAngle) < AngleEnd) {
-        //Serial.println("Entro al Stop");
-        initialized = false; // Reiniciar la inicialización para la próxima vez
-      }
-    }
-  } else if (pendulum.encoderAngle > 0) {
-    //Serial.println("Angulo Positivo");
-    if (currentTime < 2) {
-      pwmOut(255);
-    } else {
-      pwmOut(-255);
-      if (abs(pendulum.encoderAngle) < AngleEnd) {
-        //Serial.println("Entro al Stop");
-        initialized = false; // Reiniciar la inicialización para la próxima vez
-      }
-    }
-  }
-}
-
 void processSerialInput() {
   if (Serial.available() > 0) {
     String input = Serial.readStringUntil('\n');
@@ -240,10 +180,6 @@ void processSerialInput() {
       Serial.println(Kd,5);
     } else if (input.startsWith("FA=")) {
       Ajuste_angulo = input.substring(3).toFloat();
-      Serial.print("AngleFixed set to: ");
-      Serial.println(Ajuste_angulo,5);
-    }else if (input.startsWith("FW=")) {
-      Ajuste_angulo_2 = input.substring(3).toFloat();
       Serial.print("AngleFixed set to: ");
       Serial.println(Ajuste_angulo,5);
     } else {
@@ -278,7 +214,7 @@ void setup() {
 
 void loop() {
   processSerialInput();
-  if(enable_riseup)riseUP();
+
   // Imprimir los valores en el monitor serie
   // Serial.print("SetPoint: "); Serial.print(setpoint);
   // Serial.print("  Angulo: "); Serial.print(pendulum.encoderAngle);
@@ -287,6 +223,6 @@ void loop() {
   // Serial.print("  Controlador Normalizado: "); Serial.print(output_norm);
   // Serial.print("  Entrada Motor: "); Serial.print(output_norm * 255);
   //Serial.print("  Velocidad Motor: "); Serial.println(motor.velocity);
-  Serial.print(setpoint);Serial.print(",");Serial.print(pendulum.encoderAngle);Serial.print(",");Serial.print(-1);Serial.print(",");Serial.print(1);Serial.print(",");Serial.println(output);
-  //delay(1); // Ajusta el delay según sea necesario para evitar sobrecarga del puerto serie
+  Serial.print(setpoint);Serial.print(",");Serial.print(pendulum.encoderAngle);Serial.print(",");Serial.print(-20);Serial.print(",");Serial.print(20);Serial.print(",");Serial.println(output);
+  //delay(5); // Ajusta el delay según sea necesario para evitar sobrecarga del puerto serie
 }
